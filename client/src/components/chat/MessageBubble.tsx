@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { User, Bot, FileText, ChevronDown, ChevronUp, X, Info, Clock, Cpu, Database, Wrench, FileCode, BrainCircuit } from 'lucide-react';
+import { User, Bot, FileText, ChevronDown, ChevronUp, X, Info, Clock, Cpu, Database, Wrench, FileCode, BrainCircuit, Layers } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { ToolCallBlock } from './ToolCallBlock';
+import { TraceViewer } from './TraceViewer';
 import { api } from '../../services/api';
 import type { Message } from '../../types';
 
@@ -40,6 +41,10 @@ export function MessageBubble({ message, streamContent }: Props) {
   const [summaryContent, setSummaryContent] = useState<string | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [traceOpen, setTraceOpen] = useState(false);
+
+  const traceSpans = message.traceSpans || [];
+  const hasTrace = traceSpans.length > 0;
 
   const handleToggleSummary = async () => {
     if (summaryOpen) { setSummaryOpen(false); return; }
@@ -116,6 +121,21 @@ export function MessageBubble({ message, streamContent }: Props) {
                 <Info className="w-3 h-3" />
                 Advanced Detail
                 {detailOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+            )}
+
+            {hasTrace && (
+              <button
+                onClick={() => setTraceOpen(!traceOpen)}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                  traceOpen
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                    : 'bg-blue-50 dark:bg-blue-900/20 text-blue-500 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30'
+                }`}
+              >
+                <Layers className="w-3 h-3" />
+                Trace ({traceSpans.length})
+                {traceOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               </button>
             )}
 
@@ -200,6 +220,13 @@ export function MessageBubble({ message, streamContent }: Props) {
                   </DetailSection>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Trace viewer */}
+          {traceOpen && hasTrace && (
+            <div className="mb-3">
+              <TraceViewer spans={traceSpans} />
             </div>
           )}
 

@@ -46,6 +46,10 @@ export function AppLayout() {
           updateToolResult(msg.payload.sessionId, msg.payload.messageId, msg.payload.toolCallId, msg.payload.result);
           break;
 
+        case 'trace.span':
+          addTraceSpan(msg.payload.sessionId, msg.payload.messageId, msg.payload.span);
+          break;
+
         case 'error':
           console.error('[WS Error]', msg.payload);
           if (msg.payload.sessionId) {
