@@ -14,12 +14,26 @@ export abstract class BaseAgent implements AgentPlugin {
   protected buildPrompt(userMessage: string, context: AgentContext): string {
     const parts: string[] = [];
 
-    if (context.soul) {
+    if (context.identity) {
+      parts.push(`[IDENTITY]\n${context.identity}`);
+    } else if (context.soul) {
       parts.push(`[SYSTEM PERSONA]\n${context.soul}`);
     }
 
+    if (context.agent) {
+      parts.push(`[AGENT INSTRUCTIONS]\n${context.agent}`);
+    }
+
     if (context.skills) {
-      parts.push(`[SKILLS & INSTRUCTIONS]\n${context.skills}`);
+      parts.push(`[SKILLS & CAPABILITIES]\n${context.skills}`);
+    }
+
+    if (context.memory) {
+      parts.push(`[MEMORY & CONTEXT]\n${context.memory}`);
+    }
+
+    if (context.user) {
+      parts.push(`[USER PREFERENCES]\n${context.user}`);
     }
 
     if (context.history.length > 0) {

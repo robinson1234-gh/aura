@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { AgentBridge } from '../agents/AgentBridge.js';
+import { LLMAgent } from '../agents/LLMAgent.js';
 import { MessageService } from '../services/MessageService.js';
 import { ConfigService } from '../services/ConfigService.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
@@ -92,6 +93,7 @@ export function createWebSocketServer(server: Server, agentBridge: AgentBridge):
 
             const messageId = uuid();
             let fullContent = '';
+            const startTime = Date.now();
 
             const agentName = agentBridge.getDefaultName();
             send({ type: 'agent.status', payload: { sessionId, status: 'executing', detail: `Agent: ${agentName}` } });
@@ -107,6 +109,10 @@ export function createWebSocketServer(server: Server, agentBridge: AgentBridge):
                 workspacePath: workspace.path,
                 skills: config.skills,
                 soul: config.soul,
+                agent: config.agent,
+                identity: config.identity,
+                memory: config.memory,
+                user: config.user,
                 history,
                 workingDirectory: workDir,
               })) {
@@ -150,6 +156,11 @@ export function createWebSocketServer(server: Server, agentBridge: AgentBridge):
                       result: chunk.content,
                     },
                   });
+                } else if (chunk.type === 'trace') {
+                  const span = chunk.metadata?.span;
+                  if (span) {
+                    send({ type: 'trace.span', payload: { sessionId, messageId, span: span as any } });
+                  }
                 } else if (chunk.type === 'error') {
                   const errText = `⚠️ ${chunk.content}`;
                   fullContent += errText;
@@ -179,16 +190,47 @@ export function createWebSocketServer(server: Server, agentBridge: AgentBridge):
                 }
               }
 
+              const elapsed = Date.now() - startTime;
+              const llmConfig = LLMAgent.loadConfig();
+
+              const workflowMeta: Record<string, unknown> = {
+                agent: agentName,
+                summaryFileId,
+                timestamp: new Date().toISOString(),
+                durationMs: elapsed,
+                workspace: workspace.path,
+                workingDirectory: workDir || null,
+                historyMessages: history.length,
+                toolCallCount: toolRecords.length,
+                toolNames: toolRecords.map(t => t.name),
+                responseLength: fullContent.length,
+                configs: {
+                  agent: config.agent ? { loaded: true, length: config.agent.length } : { loaded: false },
+                  skill: config.skills ? { loaded: true, length: config.skills.length } : { loaded: false },
+                  identity: config.identity ? { loaded: true, length: config.identity.length } : { loaded: false },
+                  memory: config.memory ? { loaded: true, length: config.memory.length } : { loaded: false },
+                  user: config.user ? { loaded: true, length: config.user.length } : { loaded: false },
+                  soul: config.soul ? { loaded: true, length: config.soul.length } : { loaded: false },
+                },
+                llm: llmConfig ? {
+                  provider: llmConfig.provider,
+                  model: llmConfig.model,
+                  baseUrl: llmConfig.baseUrl,
+                  maxTokens: llmConfig.maxTokens,
+                  temperature: llmConfig.temperature,
+                } : null,
+              };
+
               send({
                 type: 'chat.complete',
                 payload: {
                   sessionId,
                   messageId,
                   content: fullContent,
-                  metadata: { agent: agentName, summaryFileId },
+                  metadata: workflowMeta,
                 },
               });
-              console.log(`[WS] Response complete (agent: ${agentName}, chunks: ${chunkCount}, chars: ${fullContent.length}, tools: ${toolRecords.length})`);
+              console.log(`[WS] Response complete (agent: ${agentName}, chunks: ${chunkCount}, chars: ${fullContent.length}, tools: ${toolRecords.length}, ${elapsed}ms)`);
             } catch (error: any) {
               console.error('[WS] Execution error:', error.message);
               send({

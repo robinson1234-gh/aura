@@ -1,9 +1,10 @@
 import { BaseAgent } from './BaseAgent.js';
-import type { AgentContext, StreamChunk } from '../types/index.js';
+import type { AgentContext, StreamChunk, TraceSpan } from '../types/index.js';
 import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { CursorTool } from '../tools/CursorTool.js';
 import { ShellTool } from '../tools/ShellTool.js';
 import { ReadFileTool, WriteFileTool, ListDirectoryTool, SearchFilesTool } from '../tools/FileTool.js';
+import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -148,15 +149,37 @@ export class LLMAgent extends BaseAgent {
     return messages;
   }
 
+  private emitSpan(span: TraceSpan): StreamChunk {
+    return { type: 'trace', content: '', metadata: { span } };
+  }
+
   private async *executeOpenAICompatible(prompt: string, context: AgentContext, config: LLMConfig): AsyncGenerator<StreamChunk> {
     const controller = new AbortController();
     this.abortControllers.set(context.sessionId, controller);
+
+    const chainSpanId = uuid();
+    yield this.emitSpan({
+      spanId: chainSpanId, parentSpanId: null, name: 'LLM Agent Chain', kind: 'chain',
+      status: 'running', startTime: Date.now(),
+      input: prompt,
+      metadata: { provider: config.provider, model: config.model, workspace: context.workspacePath, workingDirectory: context.workingDirectory },
+    });
 
     const messages: ChatMessage[] = this.buildMessages(prompt, context);
     const tools = this.toolRegistry.getDefinitions();
     const url = `${config.baseUrl}/chat/completions`;
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      const llmSpanId = uuid();
+      const llmStart = Date.now();
+
+      yield this.emitSpan({
+        spanId: llmSpanId, parentSpanId: chainSpanId, name: `LLM Call #${iteration + 1}`, kind: 'llm',
+        status: 'running', startTime: llmStart,
+        input: JSON.stringify({ model: config.model, messages: messages.length, tools: tools.length }),
+        metadata: { model: config.model, provider: config.provider, iteration, messageCount: messages.length, temperature: config.temperature ?? 0.7, maxTokens: config.maxTokens || 4096 },
+      });
+
       const requestBody: Record<string, unknown> = {
         model: config.model,
         messages,
@@ -184,20 +207,31 @@ export class LLMAgent extends BaseAgent {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[LLMAgent] API error ${response.status}: ${errorText.slice(0, 300)}`);
+        yield this.emitSpan({ spanId: llmSpanId, parentSpanId: chainSpanId, name: `LLM Call #${iteration + 1}`, kind: 'llm', status: 'error', startTime: llmStart, endTime: Date.now(), error: `API ${response.status}: ${errorText.slice(0, 200)}` });
         throw new Error(`API returned ${response.status}: ${errorText.slice(0, 500)}`);
       }
 
       if (!response.body) {
+        yield this.emitSpan({ spanId: llmSpanId, parentSpanId: chainSpanId, name: `LLM Call #${iteration + 1}`, kind: 'llm', status: 'error', startTime: llmStart, endTime: Date.now(), error: 'No response body' });
         throw new Error('No response body received');
       }
 
-      const { textContent, toolCalls, finishReason } = await this.readSSEStream(response, controller);
+      const { textContent, toolCalls, finishReason, usage } = await this.readSSEStream(response, controller);
 
       if (!textContent && toolCalls.length === 0) {
         console.error(`[LLMAgent] Empty response from API (finish_reason: ${finishReason}, url: ${url}, model: ${config.model})`);
+        yield this.emitSpan({ spanId: llmSpanId, parentSpanId: chainSpanId, name: `LLM Call #${iteration + 1}`, kind: 'llm', status: 'error', startTime: llmStart, endTime: Date.now(), error: 'Empty response from API' });
         yield { type: 'error', content: `LLM returned empty response. Check your API key and model configuration.\n\nProvider: ${config.provider}\nModel: ${config.model}\nBase URL: ${config.baseUrl}` };
         break;
       }
+
+      yield this.emitSpan({
+        spanId: llmSpanId, parentSpanId: chainSpanId, name: `LLM Call #${iteration + 1}`, kind: 'llm',
+        status: 'completed', startTime: llmStart, endTime: Date.now(),
+        output: textContent ? textContent.slice(0, 500) + (textContent.length > 500 ? '...' : '') : `(${toolCalls.length} tool calls)`,
+        metadata: { finishReason, toolCallsRequested: toolCalls.length, outputLength: textContent?.length || 0 },
+        tokenUsage: usage || undefined,
+      });
 
       if (textContent) {
         yield { type: 'text', content: textContent };
@@ -213,34 +247,48 @@ export class LLMAgent extends BaseAgent {
         for (const toolCall of toolCalls) {
           const toolName = toolCall.function.name;
           const toolArgs = toolCall.function.arguments;
+          const toolSpanId = uuid();
+          const toolStart = Date.now();
+
+          yield this.emitSpan({
+            spanId: toolSpanId, parentSpanId: chainSpanId, name: toolName, kind: 'tool',
+            status: 'running', startTime: toolStart,
+            input: toolArgs,
+            metadata: { toolCallId: toolCall.id },
+          });
 
           yield {
             type: 'tool_call',
             content: `Calling tool: **${toolName}**`,
-            metadata: {
-              toolCallId: toolCall.id,
-              toolName,
-              arguments: toolArgs,
-              status: 'running',
-            },
+            metadata: { toolCallId: toolCall.id, toolName, arguments: toolArgs, status: 'running' },
           };
 
-          const result = await this.toolRegistry.execute(toolName, toolArgs, context);
+          let result: string;
+          try {
+            result = await this.toolRegistry.execute(toolName, toolArgs, context);
+            yield this.emitSpan({
+              spanId: toolSpanId, parentSpanId: chainSpanId, name: toolName, kind: 'tool',
+              status: 'completed', startTime: toolStart, endTime: Date.now(),
+              input: toolArgs,
+              output: result.slice(0, 1000) + (result.length > 1000 ? '...' : ''),
+              metadata: { toolCallId: toolCall.id, resultLength: result.length },
+            });
+          } catch (err: any) {
+            result = `Error: ${err.message}`;
+            yield this.emitSpan({
+              spanId: toolSpanId, parentSpanId: chainSpanId, name: toolName, kind: 'tool',
+              status: 'error', startTime: toolStart, endTime: Date.now(),
+              input: toolArgs, error: err.message,
+              metadata: { toolCallId: toolCall.id },
+            });
+          }
 
-          messages.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: result,
-          });
+          messages.push({ role: 'tool', tool_call_id: toolCall.id, content: result });
 
           yield {
             type: 'tool_result',
             content: result,
-            metadata: {
-              toolCallId: toolCall.id,
-              toolName,
-              status: 'completed',
-            },
+            metadata: { toolCallId: toolCall.id, toolName, status: 'completed' },
           };
         }
 
@@ -249,17 +297,24 @@ export class LLMAgent extends BaseAgent {
 
       break;
     }
+
+    yield this.emitSpan({
+      spanId: chainSpanId, parentSpanId: null, name: 'LLM Agent Chain', kind: 'chain',
+      status: 'completed', startTime: 0, endTime: Date.now(),
+      metadata: { totalIterations: Math.min(MAX_TOOL_ITERATIONS, messages.filter(m => m.role === 'user').length) },
+    });
   }
 
   private async readSSEStream(
     response: Response,
     _controller: AbortController
-  ): Promise<{ textContent: string; toolCalls: ToolCallMessage[]; finishReason: string | null }> {
+  ): Promise<{ textContent: string; toolCalls: ToolCallMessage[]; finishReason: string | null; usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null }> {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let textContent = '';
     let finishReason: string | null = null;
+    let usage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | null = null;
 
     const toolCallAccumulators = new Map<number, { id: string; name: string; arguments: string }>();
 
@@ -278,40 +333,37 @@ export class LLMAgent extends BaseAgent {
         if (data === '[DONE]') {
           const toolCalls: ToolCallMessage[] = [];
           for (const acc of toolCallAccumulators.values()) {
-            toolCalls.push({
-              id: acc.id,
-              type: 'function',
-              function: { name: acc.name, arguments: acc.arguments },
-            });
+            toolCalls.push({ id: acc.id, type: 'function', function: { name: acc.name, arguments: acc.arguments } });
           }
-          return { textContent, toolCalls, finishReason };
+          return { textContent, toolCalls, finishReason, usage };
         }
 
         try {
           const parsed = JSON.parse(data);
+
+          if (parsed.usage) {
+            usage = {
+              promptTokens: parsed.usage.prompt_tokens,
+              completionTokens: parsed.usage.completion_tokens,
+              totalTokens: parsed.usage.total_tokens,
+            };
+          }
+
           const choice = parsed.choices?.[0];
           if (!choice) continue;
 
-          if (choice.finish_reason) {
-            finishReason = choice.finish_reason;
-          }
+          if (choice.finish_reason) finishReason = choice.finish_reason;
 
           const delta = choice.delta;
           if (!delta) continue;
 
-          if (delta.content) {
-            textContent += delta.content;
-          }
+          if (delta.content) textContent += delta.content;
 
           if (delta.tool_calls) {
             for (const tc of delta.tool_calls) {
               const idx = tc.index ?? 0;
               if (!toolCallAccumulators.has(idx)) {
-                toolCallAccumulators.set(idx, {
-                  id: tc.id || `call_${idx}_${Date.now()}`,
-                  name: tc.function?.name || '',
-                  arguments: '',
-                });
+                toolCallAccumulators.set(idx, { id: tc.id || `call_${idx}_${Date.now()}`, name: tc.function?.name || '', arguments: '' });
               }
               const acc = toolCallAccumulators.get(idx)!;
               if (tc.id) acc.id = tc.id;
@@ -327,13 +379,9 @@ export class LLMAgent extends BaseAgent {
 
     const toolCalls: ToolCallMessage[] = [];
     for (const acc of toolCallAccumulators.values()) {
-      toolCalls.push({
-        id: acc.id,
-        type: 'function',
-        function: { name: acc.name, arguments: acc.arguments },
-      });
+      toolCalls.push({ id: acc.id, type: 'function', function: { name: acc.name, arguments: acc.arguments } });
     }
-    return { textContent, toolCalls, finishReason };
+    return { textContent, toolCalls, finishReason, usage };
   }
 
   private async *executeAnthropic(prompt: string, context: AgentContext, config: LLMConfig): AsyncGenerator<StreamChunk> {

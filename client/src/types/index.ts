@@ -28,6 +28,23 @@ export interface ToolCallInfo {
   result?: string;
 }
 
+export type TraceSpanKind = 'chain' | 'llm' | 'tool' | 'retriever' | 'agent';
+
+export interface TraceSpan {
+  spanId: string;
+  parentSpanId: string | null;
+  name: string;
+  kind: TraceSpanKind;
+  status: 'running' | 'completed' | 'error';
+  startTime: number;
+  endTime?: number;
+  input?: string;
+  output?: string;
+  metadata?: Record<string, unknown>;
+  error?: string;
+  tokenUsage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
+}
+
 export interface Message {
   id: string;
   sessionId: string;
@@ -37,6 +54,7 @@ export interface Message {
   createdAt: string;
   isStreaming?: boolean;
   toolCalls?: ToolCallInfo[];
+  traceSpans?: TraceSpan[];
 }
 
 export interface WorkspaceConfig {
@@ -53,5 +71,6 @@ export type WSServerMessage =
   | { type: 'agent.status'; payload: { sessionId: string; status: AgentStatus; detail?: string } }
   | { type: 'chat.tool_call'; payload: { sessionId: string; messageId: string; toolCallId: string; toolName: string; arguments: string; status: string } }
   | { type: 'chat.tool_result'; payload: { sessionId: string; messageId: string; toolCallId: string; toolName: string; result: string } }
+  | { type: 'trace.span'; payload: { sessionId: string; messageId: string; span: TraceSpan } }
   | { type: 'error'; payload: { code: string; message: string; sessionId?: string } }
   | { type: 'connected'; payload: { message: string } };

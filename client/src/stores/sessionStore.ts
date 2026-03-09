@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Session, Message, AgentStatus, ToolCallInfo } from '../types';
+import type { Session, Message, AgentStatus, ToolCallInfo, TraceSpan } from '../types';
 import { api } from '../services/api';
 import { socketService } from '../services/socket';
 
@@ -52,6 +52,7 @@ interface SessionStoreState {
   setAgentStatus: (sessionId: string, status: AgentStatus, detail?: string) => void;
   addToolCall: (sessionId: string, messageId: string, toolCall: ToolCallInfo) => void;
   updateToolResult: (sessionId: string, messageId: string, toolCallId: string, result: string) => void;
+  addTraceSpan: (sessionId: string, messageId: string, span: TraceSpan) => void;
 }
 
 export const useSessionStore = create<SessionStoreState>((set, get) => ({
@@ -304,6 +305,40 @@ export const useSessionStore = create<SessionStoreState>((set, get) => ({
             }
           : m
       );
+
+      states.set(sessionId, { ...cs, messages });
+      return { chatStates: states };
+    });
+  },
+
+  addTraceSpan: (sessionId, messageId, span) => {
+    set(state => {
+      const states = new Map(state.chatStates);
+      const cs = states.get(sessionId) || emptyChatState();
+
+      const messages = cs.messages.map(m => {
+        if (m.id !== messageId) return m;
+        const existing = (m.traceSpans || []).findIndex(s => s.spanId === span.spanId);
+        if (existing >= 0) {
+          const updated = [...(m.traceSpans || [])];
+          updated[existing] = span;
+          return { ...m, traceSpans: updated };
+        }
+        return { ...m, traceSpans: [...(m.traceSpans || []), span] };
+      });
+
+      // Ensure the message exists
+      if (!messages.find(m => m.id === messageId)) {
+        messages.push({
+          id: messageId,
+          sessionId,
+          role: 'assistant' as const,
+          content: '',
+          createdAt: new Date().toISOString(),
+          isStreaming: true,
+          traceSpans: [span],
+        });
+      }
 
       states.set(sessionId, { ...cs, messages });
       return { chatStates: states };

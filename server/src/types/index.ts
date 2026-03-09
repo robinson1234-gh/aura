@@ -42,13 +42,34 @@ export interface FileRecord {
 export interface WorkspaceConfig {
   skills: string;
   soul: string;
+  agent: string;
+  identity: string;
+  memory: string;
+  user: string;
   settings: Record<string, unknown>;
 }
 
 export interface StreamChunk {
-  type: 'text' | 'tool_call' | 'tool_result' | 'error' | 'done';
+  type: 'text' | 'tool_call' | 'tool_result' | 'error' | 'done' | 'trace';
   content: string;
   metadata?: Record<string, unknown>;
+}
+
+export type TraceSpanKind = 'chain' | 'llm' | 'tool' | 'retriever' | 'agent';
+
+export interface TraceSpan {
+  spanId: string;
+  parentSpanId: string | null;
+  name: string;
+  kind: TraceSpanKind;
+  status: 'running' | 'completed' | 'error';
+  startTime: number;
+  endTime?: number;
+  input?: string;
+  output?: string;
+  metadata?: Record<string, unknown>;
+  error?: string;
+  tokenUsage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number };
 }
 
 export interface AgentPlugin {
@@ -64,6 +85,10 @@ export interface AgentContext {
   workspacePath: string;
   skills: string;
   soul: string;
+  agent: string;
+  identity: string;
+  memory: string;
+  user: string;
   history: Message[];
   workingDirectory?: string;
 }
@@ -79,6 +104,7 @@ export type WSServerMessage =
   | { type: 'agent.status'; payload: { sessionId: string; status: AgentStatus; detail?: string } }
   | { type: 'chat.tool_call'; payload: { sessionId: string; messageId: string; toolCallId: string; toolName: string; arguments: string; status: string } }
   | { type: 'chat.tool_result'; payload: { sessionId: string; messageId: string; toolCallId: string; toolName: string; result: string } }
+  | { type: 'trace.span'; payload: { sessionId: string; messageId: string; span: TraceSpan } }
   | { type: 'error'; payload: { code: string; message: string; sessionId?: string } }
   | { type: 'connected'; payload: { message: string } };
 

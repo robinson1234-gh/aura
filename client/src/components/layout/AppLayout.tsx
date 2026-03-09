@@ -2,15 +2,15 @@ import { useEffect } from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { ChatArea } from '../chat/ChatArea';
-import { ConfigPanel } from '../config/ConfigPanel';
+import { SettingsPage } from '../config/SettingsPage';
 import { useConfigStore } from '../../stores/configStore';
 import { useSessionStore } from '../../stores/sessionStore';
 import { socketService } from '../../services/socket';
 import type { WSServerMessage } from '../../types';
 
 export function AppLayout() {
-  const { sidebarOpen, configPanelOpen, toggleConfigPanel, theme } = useConfigStore();
-  const { appendStreamDelta, completeStream, setAgentStatus, addToolCall, updateToolResult } = useSessionStore();
+  const { sidebarOpen, configPanelOpen, theme } = useConfigStore();
+  const { appendStreamDelta, completeStream, setAgentStatus, addToolCall, updateToolResult, addTraceSpan } = useSessionStore();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -67,13 +67,12 @@ export function AppLayout() {
 
   return (
     <div className="h-screen flex bg-slate-50 dark:bg-surface-950">
-      {sidebarOpen && <Sidebar />}
+      {sidebarOpen && !configPanelOpen && <Sidebar />}
 
       <div className="flex-1 flex flex-col min-w-0">
         <Header />
         <div className="flex-1 flex min-h-0">
-          <ChatArea />
-          {configPanelOpen && <ConfigPanel onClose={toggleConfigPanel} />}
+          {configPanelOpen ? <SettingsPage /> : <ChatArea />}
         </div>
       </div>
     </div>

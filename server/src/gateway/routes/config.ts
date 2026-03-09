@@ -1,13 +1,46 @@
 import { Router } from 'express';
 import { ConfigService } from '../../services/ConfigService.js';
+import { GenerateService } from '../../services/GenerateService.js';
 
 const router = Router();
 const configService = new ConfigService();
+const generateService = new GenerateService();
+
+router.post('/generate/:filename/:path(*)', async (req, res) => {
+  try {
+    const { description } = req.body;
+    if (!description) return res.status(400).json({ error: 'description is required' });
+    const content = await generateService.generate(req.params.filename, description, req.params.path);
+    res.json({ content });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.get('/resolve/:path(*)', (req, res) => {
   try {
     const config = configService.resolveConfig(req.params.path);
     res.json(config);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/file/:filename/:path(*)', (req, res) => {
+  try {
+    const content = configService.getFile(req.params.path, req.params.filename);
+    res.json({ content });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/file/:filename/:path(*)', (req, res) => {
+  try {
+    const { content } = req.body;
+    if (content === undefined) return res.status(400).json({ error: 'content is required' });
+    configService.saveFile(req.params.path, req.params.filename, content);
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

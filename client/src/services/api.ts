@@ -40,6 +40,11 @@ export const api = {
 
   config: {
     resolve: (path: string) => request<any>(`/config/resolve/${path}`),
+    getFile: (wsPath: string, filename: string) => request<{ content: string }>(`/config/file/${filename}/${wsPath}`),
+    saveFile: (wsPath: string, filename: string, content: string) =>
+      request<any>(`/config/file/${filename}/${wsPath}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+    generate: (wsPath: string, filename: string, description: string) =>
+      request<{ content: string }>(`/config/generate/${filename}/${wsPath}`, { method: 'POST', body: JSON.stringify({ description }) }),
     getSkill: (path: string) => request<{ content: string }>(`/config/skill/${path}`),
     saveSkill: (path: string, content: string) =>
       request<any>(`/config/skill/${path}`, { method: 'PUT', body: JSON.stringify({ content }) }),
