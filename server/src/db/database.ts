@@ -210,6 +210,21 @@ function runMigrations(db: DatabaseWrapper): void {
     CREATE INDEX IF NOT EXISTS idx_summaries_session ON conversation_summaries(session_id);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL DEFAULT 'llm',
+      description TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      config TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
+  `);
+
   // Remove CHECK constraint on workspaces.level for dynamic nesting
   try {
     const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='workspaces'").get() as any;

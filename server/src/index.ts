@@ -21,6 +21,7 @@ async function main() {
   configService.ensureDefaultConfigs();
 
   const agentBridge = new AgentBridge();
+  agentBridge.syncFromDatabase();
   await agentBridge.autoSelectDefault();
 
   const app = createHttpServer(agentBridge);

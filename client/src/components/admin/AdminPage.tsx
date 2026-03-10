@@ -3,7 +3,7 @@ import {
   LayoutDashboard, FolderTree, MessageSquare, Brain, Cpu, Trash2,
   ChevronDown, ChevronRight, CheckSquare, Square, Search, RefreshCw,
   ArrowLeft, AlertCircle, Clock, Hash, FileText, CheckCircle2, XCircle,
-  BookOpen, Cog, Bot, Key,
+  BookOpen, Cog, Bot, Key, Plus, Pencil, Power, PowerOff, Star, Save, X,
 } from 'lucide-react';
 import { useConfigStore } from '../../stores/configStore';
 import { api } from '../../services/api';
@@ -32,11 +32,20 @@ export function AdminPage() {
   const [memoryFilter, setMemoryFilter] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'sessions' | 'memories'; ids: string[] } | null>(null);
   const [agentHealth, setAgentHealth] = useState<{ defaultAgent: string; agents: Record<string, boolean> } | null>(null);
+  const [agentRecords, setAgentRecords] = useState<any[]>([]);
 
   const loadStats = useCallback(async () => {
     try {
       const [s, h] = await Promise.all([api.admin.stats(), api.health()]);
       setStats(s);
+      setAgentHealth(h);
+    } catch { /* ignore */ }
+  }, []);
+
+  const loadAgentRecords = useCallback(async () => {
+    try {
+      const [records, h] = await Promise.all([api.agentControl.getRecords(), api.health()]);
+      setAgentRecords(records);
       setAgentHealth(h);
     } catch { /* ignore */ }
   }, []);
@@ -64,7 +73,7 @@ export function AdminPage() {
     if (tab === 'workspaces') loadWorkspaces();
     if (tab === 'sessions') loadSessions();
     if (tab === 'memories') loadMemories();
-    if (tab === 'agents') loadStats();
+    if (tab === 'agents') loadAgentRecords();
   }, [tab]);
 
   const handleBulkDeleteSessions = async () => {
@@ -150,7 +159,7 @@ export function AdminPage() {
             onBulkDelete={() => setDeleteConfirm({ type: 'memories', ids: [...selectedMemories] })}
           />
         )}
-        {tab === 'agents' && <AgentsPanel agentHealth={agentHealth} onRefresh={loadStats} />}
+        {tab === 'agents' && <AgentsPanel agentRecords={agentRecords} agentHealth={agentHealth} onRefresh={loadAgentRecords} />}
 
         {/* Delete confirmation dialog */}
         {deleteConfirm && (
@@ -442,8 +451,48 @@ function MemoriesPanel({ memories, loading, filter, selected, onFilterChange, on
 }
 
 /* ───── Agents Panel ───── */
-function AgentsPanel({ agentHealth, onRefresh }: { agentHealth: any; onRefresh: () => void }) {
-  const agents = agentHealth ? Object.entries(agentHealth.agents as Record<string, boolean>) : [];
+interface AgentRecord { id: string; name: string; type: string; description: string; enabled: boolean; isDefault: boolean; config: Record<string, unknown>; createdAt: string; updatedAt: string }
+
+function AgentsPanel({ agentRecords, agentHealth, onRefresh }: { agentRecords: AgentRecord[]; agentHealth: any; onRefresh: () => void }) {
+  const [editingAgent, setEditingAgent] = useState<AgentRecord | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<AgentRecord | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const BUILT_IN = ['echo', 'cursor', 'llm'];
+  const healthMap: Record<string, boolean> = agentHealth?.agents || {};
+
+  const handleToggleEnabled = async (agent: AgentRecord) => {
+    setActionLoading(agent.id);
+    try {
+      await api.agentControl.setEnabled(agent.name, !agent.enabled);
+      onRefresh();
+    } catch { /* ignore */ }
+    setActionLoading(null);
+  };
+
+  const handleSetDefault = async (agent: AgentRecord) => {
+    setActionLoading(agent.id);
+    try {
+      await api.agentControl.setDefault(agent.name);
+      onRefresh();
+    } catch { /* ignore */ }
+    setActionLoading(null);
+  };
+
+  const handleDelete = async (agent: AgentRecord) => {
+    try {
+      await api.agentControl.deleteRecord(agent.id);
+      setDeleteConfirm(null);
+      onRefresh();
+    } catch { /* ignore */ }
+  };
+
+  const getAgentIcon = (name: string) => {
+    if (name === 'llm') return Key;
+    if (name === 'cursor') return Bot;
+    return Cpu;
+  };
 
   return (
     <div>
@@ -451,29 +500,275 @@ function AgentsPanel({ agentHealth, onRefresh }: { agentHealth: any; onRefresh: 
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
           <Cpu className="w-5 h-5 text-violet-500" /> Agents
         </h2>
-        <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
-          <RefreshCw className="w-4 h-4 text-slate-400" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setShowAddForm(true); setEditingAgent(null); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium transition-colors">
+            <Plus className="w-3.5 h-3.5" /> Add Agent
+          </button>
+          <button onClick={onRefresh} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <RefreshCw className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">
-        {agents.map(([name, healthy]) => (
-          <div key={name} className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${healthy ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}`}>
-              {name === 'llm' ? <Key className={`w-5 h-5 ${healthy ? 'text-green-500' : 'text-red-500'}`} /> :
-               name === 'cursor' ? <Bot className={`w-5 h-5 ${healthy ? 'text-green-500' : 'text-red-500'}`} /> :
-               <Cpu className={`w-5 h-5 ${healthy ? 'text-green-500' : 'text-red-500'}`} />}
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 capitalize">{name}</span>
-                {agentHealth.defaultAgent === name && <span className="text-[9px] font-bold uppercase bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">default</span>}
+        {agentRecords.map(agent => {
+          const Icon = getAgentIcon(agent.name);
+          const healthy = healthMap[agent.name] ?? false;
+          const isBuiltIn = BUILT_IN.includes(agent.name);
+          const isDefault = agentHealth?.defaultAgent === agent.name;
+
+          return (
+            <div key={agent.id} className={`rounded-xl border p-4 transition-colors ${
+              !agent.enabled ? 'border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 opacity-60' :
+              'border-slate-200 dark:border-slate-700'
+            }`}>
+              <div className="flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                  !agent.enabled ? 'bg-slate-100 dark:bg-slate-800' :
+                  healthy ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'
+                }`}>
+                  <Icon className={`w-5 h-5 ${!agent.enabled ? 'text-slate-400' : healthy ? 'text-green-500' : 'text-red-500'}`} />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 capitalize">{agent.name}</span>
+                    {isDefault && <span className="text-[9px] font-bold uppercase bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">default</span>}
+                    {isBuiltIn && <span className="text-[9px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded">built-in</span>}
+                    <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${agent.enabled ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'}`}>
+                      {agent.enabled ? 'enabled' : 'disabled'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5 truncate">{agent.description || 'No description'}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Type: {agent.type} · Updated: {new Date(agent.updatedAt).toLocaleString()}</p>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Set Default */}
+                  {agent.enabled && !isDefault && (
+                    <button
+                      onClick={() => handleSetDefault(agent)}
+                      disabled={actionLoading === agent.id}
+                      title="Set as default"
+                      className="p-2 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-slate-400 hover:text-amber-500 transition-colors"
+                    >
+                      <Star className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  {/* Edit */}
+                  <button
+                    onClick={() => { setEditingAgent(agent); setShowAddForm(false); }}
+                    title="Edit"
+                    className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-primary-500 transition-colors"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+
+                  {/* Enable/Disable */}
+                  <button
+                    onClick={() => handleToggleEnabled(agent)}
+                    disabled={actionLoading === agent.id}
+                    title={agent.enabled ? 'Disable' : 'Enable'}
+                    className={`p-2 rounded-lg transition-colors ${
+                      agent.enabled
+                        ? 'hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500'
+                        : 'hover:bg-green-50 dark:hover:bg-green-900/20 text-slate-400 hover:text-green-500'
+                    }`}
+                  >
+                    {agent.enabled ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                  </button>
+
+                  {/* Delete (only custom agents) */}
+                  {!isBuiltIn && (
+                    <button
+                      onClick={() => setDeleteConfirm(agent)}
+                      title="Delete"
+                      className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  {/* Health indicator */}
+                  {agent.enabled && (
+                    healthy ? <CheckCircle2 className="w-5 h-5 text-green-500 ml-1" /> : <XCircle className="w-5 h-5 text-red-400 ml-1" />
+                  )}
+                </div>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">{healthy ? 'Healthy and ready' : 'Not configured or unavailable'}</p>
             </div>
-            {healthy ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : <XCircle className="w-5 h-5 text-red-400" />}
+          );
+        })}
+        {agentRecords.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-sm text-slate-400">
+            No agents configured. Click "Add Agent" to create one.
           </div>
-        ))}
+        )}
+      </div>
+
+      {/* Add / Edit Form Modal */}
+      {(showAddForm || editingAgent) && (
+        <AgentFormModal
+          agent={editingAgent}
+          onClose={() => { setShowAddForm(false); setEditingAgent(null); }}
+          onSaved={() => { setShowAddForm(false); setEditingAgent(null); onRefresh(); }}
+        />
+      )}
+
+      {/* Delete Confirmation */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <AlertCircle className="w-6 h-6 text-red-500" />
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Delete Agent</h3>
+            </div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+              Are you sure you want to delete the agent <strong>"{deleteConfirm.name}"</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600">Cancel</button>
+              <button onClick={() => handleDelete(deleteConfirm)} className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───── Agent Form Modal (Add / Edit) ───── */
+function AgentFormModal({ agent, onClose, onSaved }: { agent: AgentRecord | null; onClose: () => void; onSaved: () => void }) {
+  const isEditing = !!agent;
+  const [name, setName] = useState(agent?.name || '');
+  const [type, setType] = useState(agent?.type || 'llm');
+  const [description, setDescription] = useState(agent?.description || '');
+  const [configJson, setConfigJson] = useState(agent ? JSON.stringify(agent.config, null, 2) : '{}');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const BUILT_IN = ['echo', 'cursor', 'llm'];
+  const isBuiltIn = isEditing && BUILT_IN.includes(agent!.name);
+
+  const handleSave = async () => {
+    setError('');
+    if (!name.trim()) { setError('Name is required'); return; }
+    if (!description.trim()) { setError('Description is required'); return; }
+
+    let config: Record<string, unknown> = {};
+    try {
+      config = JSON.parse(configJson);
+    } catch {
+      setError('Invalid JSON in config');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (isEditing) {
+        await api.agentControl.updateRecord(agent!.id, {
+          name: isBuiltIn ? undefined : name.trim(),
+          description: description.trim(),
+          type,
+          config,
+        });
+      } else {
+        await api.agentControl.createRecord({
+          name: name.trim(),
+          type,
+          description: description.trim(),
+          config,
+        });
+      }
+      onSaved();
+    } catch (e: any) {
+      setError(e.message || 'Failed to save');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            {isEditing ? <Pencil className="w-5 h-5 text-primary-500" /> : <Plus className="w-5 h-5 text-primary-500" />}
+            {isEditing ? 'Edit Agent' : 'Add New Agent'}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Agent Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              disabled={isBuiltIn}
+              placeholder="e.g. my-custom-agent"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            {isBuiltIn && <p className="text-[10px] text-slate-400 mt-1">Built-in agent names cannot be changed</p>}
+          </div>
+
+          {/* Type */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Agent Type</label>
+            <select
+              value={type}
+              onChange={e => setType(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500"
+            >
+              <option value="llm">LLM</option>
+              <option value="cursor">Cursor</option>
+              <option value="echo">Echo</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Description</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Describe what this agent does..."
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 resize-none"
+            />
+          </div>
+
+          {/* Config JSON */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Configuration (JSON)</label>
+            <textarea
+              value={configJson}
+              onChange={e => setConfigJson(e.target.value)}
+              rows={5}
+              placeholder="{}"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 resize-none font-mono text-xs"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium disabled:opacity-50">
+            <Save className="w-4 h-4" /> {saving ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -53,6 +53,51 @@ export function createHttpServer(agentBridge: AgentBridge) {
     }
   });
 
+  app.get('/api/agents/records', (_req, res) => {
+    try {
+      res.json(agentBridge.getAllAgentRecords());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post('/api/agents/records', (req, res) => {
+    try {
+      const record = agentBridge.createAgentRecord(req.body);
+      res.status(201).json(record);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.put('/api/agents/records/:id', (req, res) => {
+    try {
+      const record = agentBridge.updateAgentRecord(req.params.id, req.body);
+      res.json(record);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/agents/records/:id', (req, res) => {
+    try {
+      agentBridge.deleteAgentRecord(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.put('/api/agents/:name/enabled', (req, res) => {
+    try {
+      const { enabled } = req.body;
+      agentBridge.setEnabled(req.params.name, !!enabled);
+      res.json({ success: true, name: req.params.name, enabled: !!enabled });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
   app.get('/api/summaries/:id', (req, res) => {
     const filePath = path.join(SUMMARY_DIR, `${req.params.id}.md`);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Summary not found' });
@@ -60,7 +105,6 @@ export function createHttpServer(agentBridge: AgentBridge) {
     res.json({ id: req.params.id, content });
   });
 
-  // After saving LLM config, re-select the default agent
   app.post('/api/agents/reselect', async (_req, res) => {
     await agentBridge.autoSelectDefault();
     res.json({ defaultAgent: agentBridge.getDefaultName() });

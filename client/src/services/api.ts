@@ -91,6 +91,16 @@ export const api = {
       request<any>(`/agents/default/${name}`, { method: 'PUT' }),
     reselect: () =>
       request<{ defaultAgent: string }>('/agents/reselect', { method: 'POST' }),
+    setEnabled: (name: string, enabled: boolean) =>
+      request<any>(`/agents/${name}/enabled`, { method: 'PUT', body: JSON.stringify({ enabled }) }),
+    getRecords: () =>
+      request<any[]>('/agents/records'),
+    createRecord: (data: { name: string; type: string; description: string; config?: Record<string, unknown> }) =>
+      request<any>('/agents/records', { method: 'POST', body: JSON.stringify(data) }),
+    updateRecord: (id: string, data: { name?: string; description?: string; type?: string; config?: Record<string, unknown> }) =>
+      request<any>(`/agents/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteRecord: (id: string) =>
+      request<void>(`/agents/records/${id}`, { method: 'DELETE' }),
   },
 
   summaries: {
