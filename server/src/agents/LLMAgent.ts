@@ -190,9 +190,9 @@ export class LLMAgent extends BaseAgent {
       systemParts.push(`\nCurrent working directory: ${context.workingDirectory}`);
     }
 
-    // Inject dynamic memories from MemoryService
+    // Inject dynamic memories from MemoryService (session-scoped)
     const memoryService = new MemoryService();
-    const dynamicMemory = memoryService.retrieveForContext(context.workspacePath);
+    const dynamicMemory = memoryService.retrieveForContext(context.workspacePath, context.sessionId);
     if (dynamicMemory || context.memory) {
       const memParts: string[] = [];
       if (context.memory) memParts.push(context.memory);

@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useConfigStore } from '../../stores/configStore';
+import { useSessionStore } from '../../stores/sessionStore';
 import { AgentSettings } from './AgentSettings';
 import { LLMSettings } from './LLMSettings';
 import { WorkspaceSettings } from './WorkspaceSettings';
@@ -42,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
 export function SettingsPage() {
   const { activeWorkspace } = useWorkspaceStore();
   const { toggleConfigPanel } = useConfigStore();
+  const { activeSessionId, sessions } = useSessionStore();
   const [section, setSection] = useState<Section>('agents');
 
   const activeItem = NAV_ITEMS.find(n => n.id === section)!;
@@ -63,10 +65,13 @@ export function SettingsPage() {
     if (!activeWorkspace) return <NoWorkspace />;
 
     if (section === 'memory') {
+      const workspaceSessions = sessions.filter(s => s.workspaceId === activeWorkspace.id);
       return (
         <MemoryManager
           key={`${activeWorkspace.path}-memory`}
           workspacePath={activeWorkspace.path}
+          activeSessionId={activeSessionId || undefined}
+          sessions={workspaceSessions}
         />
       );
     }

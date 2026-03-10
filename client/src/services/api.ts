@@ -127,15 +127,22 @@ export const api = {
   },
 
   memory: {
-    list: (wsPath: string, exact = false) =>
-      request<any[]>(`/memory/list/${wsPath}?exact=${exact}`),
-    create: (wsPath: string, category: string, content: string) =>
-      request<any>(`/memory/add/${wsPath}`, { method: 'POST', body: JSON.stringify({ category, content, source: 'manual' }) }),
+    list: (wsPath: string, exact = false, sessionId?: string) => {
+      const params = new URLSearchParams({ exact: String(exact) });
+      if (sessionId) params.set('sessionId', sessionId);
+      return request<any[]>(`/memory/list/${wsPath}?${params}`);
+    },
+    listBySession: (sessionId: string) =>
+      request<any[]>(`/memory/session/${sessionId}`),
+    create: (wsPath: string, category: string, content: string, sessionId?: string) =>
+      request<any>(`/memory/add/${wsPath}`, { method: 'POST', body: JSON.stringify({ category, content, source: 'manual', sessionId }) }),
     update: (id: string, content: string, category?: string) =>
       request<any>(`/memory/entry/${id}`, { method: 'PUT', body: JSON.stringify({ content, category }) }),
     delete: (id: string) =>
       request<void>(`/memory/entry/${id}`, { method: 'DELETE' }),
-    getContext: (wsPath: string) =>
-      request<{ context: string }>(`/memory/context/${wsPath}`),
+    getContext: (wsPath: string, sessionId?: string) => {
+      const params = sessionId ? `?sessionId=${sessionId}` : '';
+      return request<{ context: string }>(`/memory/context/${wsPath}${params}`);
+    },
   },
 };

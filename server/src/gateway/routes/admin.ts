@@ -105,10 +105,10 @@ export function createAdminRoutes(agentBridge: AgentBridge): Router {
       `).all() as any[];
 
       res.json(memories.map(m => ({
-        id: m.id, workspacePath: m.workspace_path, category: m.category,
-        content: m.content, source: m.source, relevance: m.relevance,
-        accessCount: m.access_count, lastAccessed: m.last_accessed,
-        createdAt: m.created_at, updatedAt: m.updated_at,
+        id: m.id, workspacePath: m.workspace_path, sessionId: m.session_id || null,
+        category: m.category, content: m.content, source: m.source,
+        relevance: m.relevance, accessCount: m.access_count,
+        lastAccessed: m.last_accessed, createdAt: m.created_at, updatedAt: m.updated_at,
       })));
     } catch (error: any) {
       res.status(500).json({ error: error.message });

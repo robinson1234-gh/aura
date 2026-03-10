@@ -178,11 +178,12 @@ function runMigrations(db: DatabaseWrapper): void {
     // column already exists
   }
 
-  // Memories table for long-term agent memory
+  // Memories table for long-term agent memory (session-scoped)
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
       workspace_path TEXT NOT NULL,
+      session_id TEXT,
       category TEXT NOT NULL DEFAULT 'semantic',
       content TEXT NOT NULL,
       source TEXT DEFAULT 'auto',
@@ -195,6 +196,20 @@ function runMigrations(db: DatabaseWrapper): void {
     CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspace_path);
     CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
   `);
+
+  // Migration: add session_id column if missing (for existing databases)
+  try {
+    db.exec('ALTER TABLE memories ADD COLUMN session_id TEXT');
+  } catch {
+    // column already exists
+  }
+
+  // Create session index after ensuring the column exists
+  try {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id)');
+  } catch {
+    // index already exists or column not available
+  }
 
   // Conversation summaries table for session history compression
   db.exec(`

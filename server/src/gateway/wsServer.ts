@@ -240,9 +240,9 @@ export function createWebSocketServer(server: Server, agentBridge: AgentBridge):
                   const allMessages = messageService.getRecentContext(sessionId, 50);
                   const msgObjs = allMessages.map(m => ({ id: m.id, role: m.role, content: m.content }));
 
-                  const extracted = await memoryService.extractMemories(workspace.path, msgObjs);
+                  const extracted = await memoryService.extractMemories(workspace.path, msgObjs, sessionId);
                   if (extracted.length > 0) {
-                    console.log(`[Memory] Extracted ${extracted.length} memories for ${workspace.path}`);
+                    console.log(`[Memory] Extracted ${extracted.length} memories for session ${sessionId.slice(0, 8)}`);
                   }
 
                   const summaryResult = await memoryService.summarizeIfNeeded(sessionId, msgObjs);

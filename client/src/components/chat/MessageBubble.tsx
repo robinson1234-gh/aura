@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { User, Bot, FileText, ChevronDown, ChevronUp, X, Info, Clock, Cpu, Database, Wrench, FileCode, BrainCircuit, Layers } from 'lucide-react';
-import { CodeBlock } from './CodeBlock';
+import { User, Bot, FileText, ChevronDown, ChevronUp, X, Info, Clock, Cpu, Wrench, FileCode, BrainCircuit, Layers } from 'lucide-react';
 import { ToolCallBlock } from './ToolCallBlock';
 import { TraceViewer } from './TraceViewer';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import { api } from '../../services/api';
 import type { Message } from '../../types';
 
@@ -249,18 +247,7 @@ export function MessageBubble({ message, streamContent }: Props) {
                 <X className="w-3.5 h-3.5 text-primary-400" />
               </button>
               <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:p-0 prose-pre:m-0 prose-pre:bg-transparent">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      const codeString = String(children).replace(/\n$/, '');
-                      if (match) return <CodeBlock language={match[1]}>{codeString}</CodeBlock>;
-                      return <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-sm font-mono" {...props}>{children}</code>;
-                    },
-                  }}
-                >
-                  {summaryContent}
-                </ReactMarkdown>
+                <MarkdownRenderer content={summaryContent} />
               </div>
             </div>
           )}
@@ -268,52 +255,7 @@ export function MessageBubble({ message, streamContent }: Props) {
           {/* Message content */}
           <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
             <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:p-0 prose-pre:m-0 prose-pre:bg-transparent">
-              {content ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ className, children, ...props }) {
-                      const match = /language-(\w+)/.exec(className || '');
-                      const codeString = String(children).replace(/\n$/, '');
-                      if (match) return <CodeBlock language={match[1]}>{codeString}</CodeBlock>;
-                      return (
-                        <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-sm font-mono" {...props}>
-                          {children}
-                        </code>
-                      );
-                    },
-                    table({ children }) {
-                      return (
-                        <div className="overflow-x-auto my-3">
-                          <table className="min-w-full border border-slate-200 dark:border-slate-700 text-sm">{children}</table>
-                        </div>
-                      );
-                    },
-                    th({ children }) {
-                      return (
-                        <th className="px-3 py-2 bg-slate-100 dark:bg-slate-800 text-left font-medium border-b border-slate-200 dark:border-slate-700">{children}</th>
-                      );
-                    },
-                    td({ children }) {
-                      return (
-                        <td className="px-3 py-2 border-b border-slate-200 dark:border-slate-700">{children}</td>
-                      );
-                    },
-                    a({ href, children }) {
-                      return (
-                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary-500 hover:underline">{children}</a>
-                      );
-                    },
-                    img({ src, alt }) {
-                      return (
-                        <img src={src} alt={alt} className="max-w-full rounded-lg border border-slate-200 dark:border-slate-700 my-2" />
-                      );
-                    },
-                  }}
-                >
-                  {content}
-                </ReactMarkdown>
-              ) : null}
+              {content ? <MarkdownRenderer content={content} /> : null}
               {message.isStreaming && <span className="typing-cursor" />}
             </div>
           </div>

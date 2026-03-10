@@ -8,6 +8,7 @@ export type MemorySource = 'auto' | 'manual' | 'system';
 export interface MemoryEntry {
   id: string;
   workspacePath: string;
+  sessionId: string | null;
   category: MemoryCategory;
   content: string;
   source: MemorySource;
@@ -58,27 +59,53 @@ Respond with only the action word, nothing else.`;
 export class MemoryService {
   /* ───── CRUD ───── */
 
-  list(workspacePath: string, category?: MemoryCategory): MemoryEntry[] {
+  list(workspacePath: string, category?: MemoryCategory, sessionId?: string): MemoryEntry[] {
     const db = getDatabase();
-    const pathPrefix = workspacePath + '%';
+
+    if (sessionId) {
+      if (category) {
+        const rows = db.prepare(
+          'SELECT * FROM memories WHERE session_id = ? AND category = ? ORDER BY relevance DESC, updated_at DESC'
+        ).all(sessionId, category) as any[];
+        return rows.map(this.mapRow);
+      }
+      const rows = db.prepare(
+        'SELECT * FROM memories WHERE session_id = ? ORDER BY relevance DESC, updated_at DESC'
+      ).all(sessionId) as any[];
+      return rows.map(this.mapRow);
+    }
 
     if (category) {
       const rows = db.prepare(
-        'SELECT * FROM memories WHERE (workspace_path = ? OR ? LIKE workspace_path || \'/%\') AND category = ? ORDER BY relevance DESC, updated_at DESC'
+        'SELECT * FROM memories WHERE (workspace_path = ? OR ? LIKE workspace_path || \'/%\') AND category = ? AND session_id IS NULL ORDER BY relevance DESC, updated_at DESC'
       ).all(workspacePath, workspacePath, category) as any[];
       return rows.map(this.mapRow);
     }
 
     const rows = db.prepare(
-      'SELECT * FROM memories WHERE (workspace_path = ? OR ? LIKE workspace_path || \'/%\') ORDER BY relevance DESC, updated_at DESC'
+      'SELECT * FROM memories WHERE (workspace_path = ? OR ? LIKE workspace_path || \'/%\') AND session_id IS NULL ORDER BY relevance DESC, updated_at DESC'
     ).all(workspacePath, workspacePath) as any[];
     return rows.map(this.mapRow);
   }
 
-  listExact(workspacePath: string): MemoryEntry[] {
+  listBySession(sessionId: string): MemoryEntry[] {
     const db = getDatabase();
     const rows = db.prepare(
-      'SELECT * FROM memories WHERE workspace_path = ? ORDER BY category, relevance DESC, updated_at DESC'
+      'SELECT * FROM memories WHERE session_id = ? ORDER BY category, relevance DESC, updated_at DESC'
+    ).all(sessionId) as any[];
+    return rows.map(this.mapRow);
+  }
+
+  listExact(workspacePath: string, sessionId?: string): MemoryEntry[] {
+    const db = getDatabase();
+    if (sessionId) {
+      const rows = db.prepare(
+        'SELECT * FROM memories WHERE session_id = ? ORDER BY category, relevance DESC, updated_at DESC'
+      ).all(sessionId) as any[];
+      return rows.map(this.mapRow);
+    }
+    const rows = db.prepare(
+      'SELECT * FROM memories WHERE workspace_path = ? AND session_id IS NULL ORDER BY category, relevance DESC, updated_at DESC'
     ).all(workspacePath) as any[];
     return rows.map(this.mapRow);
   }
@@ -89,12 +116,12 @@ export class MemoryService {
     return row ? this.mapRow(row) : null;
   }
 
-  create(workspacePath: string, category: MemoryCategory, content: string, source: MemorySource = 'manual'): MemoryEntry {
+  create(workspacePath: string, category: MemoryCategory, content: string, source: MemorySource = 'manual', sessionId?: string): MemoryEntry {
     const db = getDatabase();
     const id = uuid();
     db.prepare(
-      'INSERT INTO memories (id, workspace_path, category, content, source) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, workspacePath, category, content, source);
+      'INSERT INTO memories (id, workspace_path, session_id, category, content, source) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(id, workspacePath, sessionId || null, category, content, source);
     return this.getById(id)!;
   }
 
@@ -115,15 +142,25 @@ export class MemoryService {
 
   /* ───── Retrieval for agent context ───── */
 
-  retrieveForContext(workspacePath: string, maxEntries = 30): string {
+  retrieveForContext(workspacePath: string, sessionId?: string, maxEntries = 30): string {
     const db = getDatabase();
 
-    const rows = db.prepare(`
-      SELECT * FROM memories 
-      WHERE workspace_path = ? OR ? LIKE workspace_path || '/%'
-      ORDER BY relevance DESC, access_count DESC, updated_at DESC
-      LIMIT ?
-    `).all(workspacePath, workspacePath, maxEntries) as any[];
+    let rows: any[];
+    if (sessionId) {
+      rows = db.prepare(`
+        SELECT * FROM memories 
+        WHERE session_id = ?
+        ORDER BY relevance DESC, access_count DESC, updated_at DESC
+        LIMIT ?
+      `).all(sessionId, maxEntries) as any[];
+    } else {
+      rows = db.prepare(`
+        SELECT * FROM memories 
+        WHERE (workspace_path = ? OR ? LIKE workspace_path || '/%') AND session_id IS NULL
+        ORDER BY relevance DESC, access_count DESC, updated_at DESC
+        LIMIT ?
+      `).all(workspacePath, workspacePath, maxEntries) as any[];
+    }
 
     if (rows.length === 0) return '';
 
@@ -217,7 +254,7 @@ export class MemoryService {
 
   /* ───── Auto-extraction from conversations ───── */
 
-  async extractMemories(workspacePath: string, messages: { role: string; content: string }[]): Promise<MemoryEntry[]> {
+  async extractMemories(workspacePath: string, messages: { role: string; content: string }[], sessionId?: string): Promise<MemoryEntry[]> {
     if (messages.length < 2) return [];
 
     const conversationText = messages
@@ -243,7 +280,9 @@ export class MemoryService {
     }
 
     const created: MemoryEntry[] = [];
-    const existing = this.listExact(workspacePath);
+    const existing = sessionId
+      ? this.listBySession(sessionId)
+      : this.listExact(workspacePath);
 
     for (const candidate of candidates) {
       if (!candidate.content || candidate.content.length < 5) continue;
@@ -262,7 +301,7 @@ export class MemoryService {
         }
       }
 
-      const entry = this.create(workspacePath, cat, candidate.content, 'auto');
+      const entry = this.create(workspacePath, cat, candidate.content, 'auto', sessionId);
       created.push(entry);
       existing.push(entry);
     }
@@ -336,6 +375,7 @@ export class MemoryService {
     return {
       id: row.id,
       workspacePath: row.workspace_path,
+      sessionId: row.session_id || null,
       category: row.category,
       content: row.content,
       source: row.source,
