@@ -4,7 +4,10 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { CursorTool } from '../tools/CursorTool.js';
 import { ShellTool } from '../tools/ShellTool.js';
 import { ReadFileTool, WriteFileTool, ListDirectoryTool, SearchFilesTool } from '../tools/FileTool.js';
+import { CustomToolExecutor } from '../tools/CustomTool.js';
 import { MemoryService } from '../services/MemoryService.js';
+import { ToolConfigService } from '../services/ToolConfigService.js';
+import { mcpManager } from '../tools/McpManager.js';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
@@ -49,6 +52,7 @@ export class LLMAgent extends BaseAgent {
 
   private abortControllers = new Map<string, AbortController>();
   private toolRegistry: ToolRegistry;
+  private toolConfigService = new ToolConfigService();
 
   constructor() {
     super();
@@ -59,6 +63,44 @@ export class LLMAgent extends BaseAgent {
     this.toolRegistry.register(new WriteFileTool());
     this.toolRegistry.register(new ListDirectoryTool());
     this.toolRegistry.register(new SearchFilesTool());
+    this.loadDynamicTools();
+  }
+
+  private loadDynamicTools(): void {
+    const customTools = this.toolConfigService.listTools().filter(t => t.enabled);
+    for (const ct of customTools) {
+      try {
+        this.toolRegistry.register(new CustomToolExecutor(ct));
+        console.log(`[LLMAgent] Loaded custom tool: ${ct.name}`);
+      } catch (err: any) {
+        console.error(`[LLMAgent] Failed to load custom tool ${ct.name}:`, err.message);
+      }
+    }
+
+    for (const mcpTool of mcpManager.getAllTools()) {
+      try {
+        this.toolRegistry.register(mcpTool);
+        console.log(`[LLMAgent] Loaded MCP tool: ${mcpTool.name}`);
+      } catch (err: any) {
+        console.error(`[LLMAgent] Failed to load MCP tool ${mcpTool.name}:`, err.message);
+      }
+    }
+  }
+
+  reloadTools(): void {
+    this.toolRegistry = new ToolRegistry();
+    this.toolRegistry.register(new CursorTool());
+    this.toolRegistry.register(new ShellTool());
+    this.toolRegistry.register(new ReadFileTool());
+    this.toolRegistry.register(new WriteFileTool());
+    this.toolRegistry.register(new ListDirectoryTool());
+    this.toolRegistry.register(new SearchFilesTool());
+    this.loadDynamicTools();
+    console.log(`[LLMAgent] Tools reloaded. Total: ${this.toolRegistry.getToolNames().length}`);
+  }
+
+  getRegisteredTools(): string[] {
+    return this.toolRegistry.getToolNames();
   }
 
   static loadConfig(): LLMConfig | null {

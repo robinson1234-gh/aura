@@ -108,12 +108,22 @@ export const api = {
   },
 
   admin: {
-    stats: () => request<{ workspaceCount: number; sessionCount: number; messageCount: number; memoryCount: number }>('/admin/stats'),
+    stats: () => request<any>('/admin/stats'),
     workspaces: () => request<any[]>('/admin/workspaces'),
     sessions: (workspaceId?: string) => request<any[]>(`/admin/sessions${workspaceId ? `?workspaceId=${workspaceId}` : ''}`),
     memories: () => request<any[]>('/admin/memories'),
     bulkDeleteSessions: (ids: string[]) => request<any>('/admin/sessions/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
     bulkDeleteMemories: (ids: string[]) => request<any>('/admin/memories/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+    tools: () => request<{ tools: any[]; registeredTools: string[] }>('/admin/tools'),
+    createTool: (data: any) => request<any>('/admin/tools', { method: 'POST', body: JSON.stringify(data) }),
+    updateTool: (id: string, data: any) => request<any>(`/admin/tools/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteTool: (id: string) => request<any>(`/admin/tools/${id}`, { method: 'DELETE' }),
+    mcpServers: () => request<any[]>('/admin/mcp'),
+    createMcp: (data: any) => request<any>('/admin/mcp', { method: 'POST', body: JSON.stringify(data) }),
+    updateMcp: (id: string, data: any) => request<any>(`/admin/mcp/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteMcp: (id: string) => request<any>(`/admin/mcp/${id}`, { method: 'DELETE' }),
+    connectMcp: (id: string) => request<any>(`/admin/mcp/${id}/connect`, { method: 'POST' }),
+    disconnectMcp: (id: string) => request<any>(`/admin/mcp/${id}/disconnect`, { method: 'POST' }),
   },
 
   memory: {

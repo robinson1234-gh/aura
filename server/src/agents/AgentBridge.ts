@@ -233,6 +233,11 @@ export class AgentBridge {
     db.prepare('DELETE FROM agents WHERE id = ?').run(id);
   }
 
+  getLLMAgent(): LLMAgent | null {
+    const plugin = this.plugins.get('llm');
+    return plugin instanceof LLMAgent ? plugin : null;
+  }
+
   async *execute(prompt: string, context: AgentContext, pluginName?: string): AsyncGenerator<StreamChunk> {
     const plugin = this.getPlugin(pluginName);
     if (this.disabledAgents.has(plugin.name)) {

@@ -4,11 +4,12 @@ import {
   ChevronDown, ChevronRight, CheckSquare, Square, Search, RefreshCw,
   ArrowLeft, AlertCircle, Clock, Hash, FileText, CheckCircle2, XCircle,
   BookOpen, Cog, Bot, Key, Plus, Pencil, Power, PowerOff, Star, Save, X,
+  Wrench, Plug, Terminal, Globe, Zap, Link, Unlink,
 } from 'lucide-react';
 import { useConfigStore } from '../../stores/configStore';
 import { api } from '../../services/api';
 
-type Tab = 'dashboard' | 'workspaces' | 'sessions' | 'memories' | 'agents';
+type Tab = 'dashboard' | 'workspaces' | 'sessions' | 'memories' | 'agents' | 'tools' | 'mcp';
 
 interface Stats { workspaceCount: number; sessionCount: number; messageCount: number; memoryCount: number }
 interface AdminWorkspace { id: string; name: string; path: string; level: string; parentId: string | null; sessionCount: number; messageCount: number; configs: Record<string, boolean>; createdAt: string; updatedAt: string }
@@ -33,6 +34,8 @@ export function AdminPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'sessions' | 'memories'; ids: string[] } | null>(null);
   const [agentHealth, setAgentHealth] = useState<{ defaultAgent: string; agents: Record<string, boolean> } | null>(null);
   const [agentRecords, setAgentRecords] = useState<any[]>([]);
+  const [customTools, setCustomTools] = useState<{ tools: any[]; registeredTools: string[] }>({ tools: [], registeredTools: [] });
+  const [mcpServers, setMcpServers] = useState<any[]>([]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -68,12 +71,26 @@ export function AdminPage() {
     setLoading(false);
   }, []);
 
+  const loadTools = useCallback(async () => {
+    setLoading(true);
+    try { setCustomTools(await api.admin.tools()); } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  const loadMcpServers = useCallback(async () => {
+    setLoading(true);
+    try { setMcpServers(await api.admin.mcpServers()); } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     loadStats();
     if (tab === 'workspaces') loadWorkspaces();
     if (tab === 'sessions') loadSessions();
     if (tab === 'memories') loadMemories();
     if (tab === 'agents') loadAgentRecords();
+    if (tab === 'tools') loadTools();
+    if (tab === 'mcp') loadMcpServers();
   }, [tab]);
 
   const handleBulkDeleteSessions = async () => {
@@ -108,6 +125,8 @@ export function AdminPage() {
     { id: 'sessions', label: 'Sessions', icon: MessageSquare },
     { id: 'memories', label: 'Memories', icon: Brain },
     { id: 'agents', label: 'Agents', icon: Cpu },
+    { id: 'tools', label: 'Tools', icon: Wrench },
+    { id: 'mcp', label: 'MCP', icon: Plug },
   ];
 
   return (
@@ -129,6 +148,8 @@ export function AdminPage() {
                 {t.id === 'workspaces' && stats && <span className="ml-auto text-[10px] text-slate-400">{stats.workspaceCount}</span>}
                 {t.id === 'sessions' && stats && <span className="ml-auto text-[10px] text-slate-400">{stats.sessionCount}</span>}
                 {t.id === 'memories' && stats && <span className="ml-auto text-[10px] text-slate-400">{stats.memoryCount}</span>}
+                {t.id === 'tools' && stats && <span className="ml-auto text-[10px] text-slate-400">{(stats as any).toolCount ?? 0}</span>}
+                {t.id === 'mcp' && stats && <span className="ml-auto text-[10px] text-slate-400">{(stats as any).mcpCount ?? 0}</span>}
               </button>
             );
           })}
@@ -160,6 +181,8 @@ export function AdminPage() {
           />
         )}
         {tab === 'agents' && <AgentsPanel agentRecords={agentRecords} agentHealth={agentHealth} onRefresh={loadAgentRecords} />}
+        {tab === 'tools' && <ToolsPanel tools={customTools.tools} registeredTools={customTools.registeredTools} loading={loading} onRefresh={loadTools} />}
+        {tab === 'mcp' && <McpPanel servers={mcpServers} loading={loading} onRefresh={() => { loadMcpServers(); loadTools(); }} />}
 
         {/* Delete confirmation dialog */}
         {deleteConfirm && (
@@ -191,6 +214,8 @@ function DashboardPanel({ stats, agentHealth, onNavigate }: { stats: Stats | nul
     { label: 'Sessions', value: stats?.sessionCount ?? '-', icon: MessageSquare, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20', tab: 'sessions' as Tab },
     { label: 'Messages', value: stats?.messageCount ?? '-', icon: Hash, color: 'text-violet-500 bg-violet-50 dark:bg-violet-900/20', tab: 'sessions' as Tab },
     { label: 'Memories', value: stats?.memoryCount ?? '-', icon: Brain, color: 'text-amber-500 bg-amber-50 dark:bg-amber-900/20', tab: 'memories' as Tab },
+    { label: 'Tools', value: (stats as any)?.toolCount ?? '-', icon: Wrench, color: 'text-orange-500 bg-orange-50 dark:bg-orange-900/20', tab: 'tools' as Tab },
+    { label: 'MCP Servers', value: (stats as any)?.mcpCount ?? '-', icon: Plug, color: 'text-cyan-500 bg-cyan-50 dark:bg-cyan-900/20', tab: 'mcp' as Tab },
   ];
 
   return (
@@ -765,6 +790,456 @@ function AgentFormModal({ agent, onClose, onSaved }: { agent: AgentRecord | null
           <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium hover:bg-slate-200 dark:hover:bg-slate-600">
             Cancel
           </button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium disabled:opacity-50">
+            <Save className="w-4 h-4" /> {saving ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   ───── Custom Tools Panel ─────
+   ═══════════════════════════════════════════ */
+function ToolsPanel({ tools, registeredTools, loading, onRefresh }: { tools: any[]; registeredTools: string[]; loading: boolean; onRefresh: () => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingTool, setEditingTool] = useState<any | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const builtInTools = registeredTools.filter(n => !tools.find(t => t.name === n) && !n.startsWith('mcp_'));
+  const mcpTools = registeredTools.filter(n => n.startsWith('mcp_'));
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    await api.admin.deleteTool(deleteId);
+    setDeleteId(null);
+    onRefresh();
+  };
+
+  const handleToggle = async (tool: any) => {
+    await api.admin.updateTool(tool.id, { enabled: !tool.enabled });
+    onRefresh();
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+          <Wrench className="w-5 h-5 text-orange-500" /> Tools
+        </h2>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setShowForm(true); setEditingTool(null); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium">
+            <Plus className="w-3.5 h-3.5" /> Add Tool
+          </button>
+          <button onClick={onRefresh} disabled={loading} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <RefreshCw className={`w-4 h-4 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Built-in tools summary */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
+        <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Built-in Tools ({builtInTools.length})</p>
+        <div className="flex flex-wrap gap-2">
+          {builtInTools.map(name => (
+            <span key={name} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-400 font-mono">
+              <Terminal className="w-3 h-3 text-slate-400" /> {name}
+            </span>
+          ))}
+        </div>
+        {mcpTools.length > 0 && (
+          <>
+            <p className="text-xs font-semibold text-slate-500 uppercase mt-3 mb-2">MCP Tools ({mcpTools.length})</p>
+            <div className="flex flex-wrap gap-2">
+              {mcpTools.map(name => (
+                <span key={name} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 text-xs text-cyan-600 dark:text-cyan-400 font-mono">
+                  <Plug className="w-3 h-3" /> {name}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Custom tools list */}
+      <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Custom Tools ({tools.length})</p>
+      <div className="space-y-2">
+        {tools.map(tool => (
+          <div key={tool.id} className={`rounded-xl border p-4 ${tool.enabled ? 'border-slate-200 dark:border-slate-700' : 'border-slate-200 dark:border-slate-800 opacity-60'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${tool.enabled ? 'bg-orange-50 dark:bg-orange-900/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                {tool.implementation === 'http' ? <Globe className="w-4 h-4 text-orange-500" /> : <Terminal className="w-4 h-4 text-orange-500" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{tool.name}</span>
+                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${tool.implementation === 'http' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-500' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>{tool.implementation}</span>
+                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${tool.enabled ? 'bg-green-50 dark:bg-green-900/20 text-green-600' : 'bg-red-50 dark:bg-red-900/20 text-red-500'}`}>{tool.enabled ? 'on' : 'off'}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">{tool.description}</p>
+                {tool.shellCommand && <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">$ {tool.shellCommand}</p>}
+                {tool.httpUrl && <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">{tool.httpMethod || 'POST'} {tool.httpUrl}</p>}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => { setEditingTool(tool); setShowForm(false); }} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-primary-500"><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => handleToggle(tool)} className={`p-2 rounded-lg ${tool.enabled ? 'hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500' : 'hover:bg-green-50 dark:hover:bg-green-900/20 text-slate-400 hover:text-green-500'}`}>
+                  {tool.enabled ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                </button>
+                <button onClick={() => setDeleteId(tool.id)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {tools.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-sm text-slate-400">
+            No custom tools. Click "Add Tool" to create one.
+          </div>
+        )}
+      </div>
+
+      {(showForm || editingTool) && <ToolFormModal tool={editingTool} onClose={() => { setShowForm(false); setEditingTool(null); }} onSaved={() => { setShowForm(false); setEditingTool(null); onRefresh(); }} />}
+
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4"><AlertCircle className="w-6 h-6 text-red-500" /><h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Delete Tool</h3></div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">This will remove the custom tool permanently.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteId(null)} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium">Cancel</button>
+              <button onClick={handleDelete} className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───── Tool Form Modal ───── */
+function ToolFormModal({ tool, onClose, onSaved }: { tool: any | null; onClose: () => void; onSaved: () => void }) {
+  const isEditing = !!tool;
+  const [name, setName] = useState(tool?.name || '');
+  const [description, setDescription] = useState(tool?.description || '');
+  const [implementation, setImplementation] = useState<'shell' | 'http'>(tool?.implementation || 'shell');
+  const [shellCommand, setShellCommand] = useState(tool?.shellCommand || '');
+  const [httpUrl, setHttpUrl] = useState(tool?.httpUrl || '');
+  const [httpMethod, setHttpMethod] = useState(tool?.httpMethod || 'POST');
+  const [paramsJson, setParamsJson] = useState(tool?.parameters ? JSON.stringify(tool.parameters, null, 2) : '{\n  "type": "object",\n  "properties": {},\n  "required": []\n}');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    setError('');
+    if (!name.trim()) { setError('Name is required'); return; }
+    if (!description.trim()) { setError('Description is required'); return; }
+
+    let parameters: any;
+    try { parameters = JSON.parse(paramsJson); } catch { setError('Invalid parameters JSON'); return; }
+
+    setSaving(true);
+    try {
+      const data = { name: name.trim(), description: description.trim(), implementation, shellCommand, httpUrl, httpMethod, parameters };
+      if (isEditing) { await api.admin.updateTool(tool.id, data); }
+      else { await api.admin.createTool(data); }
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Wrench className="w-5 h-5 text-orange-500" /> {isEditing ? 'Edit Tool' : 'Add Custom Tool'}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+
+        {error && <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Tool Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. get_weather" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 font-mono" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} placeholder="What does this tool do?" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 resize-none" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Implementation</label>
+            <div className="flex gap-2">
+              <button onClick={() => setImplementation('shell')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium ${implementation === 'shell' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-600' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                <Terminal className="w-4 h-4" /> Shell
+              </button>
+              <button onClick={() => setImplementation('http')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium ${implementation === 'http' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-600' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                <Globe className="w-4 h-4" /> HTTP
+              </button>
+            </div>
+          </div>
+
+          {implementation === 'shell' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Shell Command</label>
+              <input type="text" value={shellCommand} onChange={e => setShellCommand(e.target.value)} placeholder="echo ${input}" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 font-mono" />
+              <p className="text-[10px] text-slate-400 mt-1">{"Use ${param_name} to inject parameters from the LLM call."}</p>
+            </div>
+          )}
+
+          {implementation === 'http' && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">HTTP Method</label>
+                <select value={httpMethod} onChange={e => setHttpMethod(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500">
+                  <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">URL</label>
+                <input type="text" value={httpUrl} onChange={e => setHttpUrl(e.target.value)} placeholder="https://api.example.com/tool" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 font-mono" />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Parameters (JSON Schema)</label>
+            <textarea value={paramsJson} onChange={e => setParamsJson(e.target.value)} rows={6} className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs outline-none focus:border-primary-500 resize-none font-mono" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium disabled:opacity-50">
+            <Save className="w-4 h-4" /> {saving ? 'Saving...' : isEditing ? 'Update' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   ───── MCP Servers Panel ─────
+   ═══════════════════════════════════════════ */
+function McpPanel({ servers, loading, onRefresh }: { servers: any[]; loading: boolean; onRefresh: () => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingServer, setEditingServer] = useState<any | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    await api.admin.deleteMcp(deleteId);
+    setDeleteId(null);
+    onRefresh();
+  };
+
+  const handleConnect = async (id: string) => {
+    setConnecting(id);
+    try { await api.admin.connectMcp(id); } catch { /* ignore */ }
+    setConnecting(null);
+    onRefresh();
+  };
+
+  const handleDisconnect = async (id: string) => {
+    setConnecting(id);
+    try { await api.admin.disconnectMcp(id); } catch { /* ignore */ }
+    setConnecting(null);
+    onRefresh();
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+          <Plug className="w-5 h-5 text-cyan-500" /> MCP Servers
+        </h2>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setShowForm(true); setEditingServer(null); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-medium">
+            <Plus className="w-3.5 h-3.5" /> Add Server
+          </button>
+          <button onClick={onRefresh} disabled={loading} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <RefreshCw className={`w-4 h-4 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Info banner */}
+      <div className="rounded-xl border border-cyan-200 dark:border-cyan-800/50 bg-cyan-50/50 dark:bg-cyan-900/10 p-4 mb-4">
+        <p className="text-xs text-cyan-700 dark:text-cyan-400 leading-relaxed">
+          <strong>Model Context Protocol (MCP)</strong> allows the agent to connect to external tool servers.
+          Add an MCP server, then connect it to discover and register its tools automatically.
+          Connected tools are available to the LLM agent during chat.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {servers.map(server => (
+          <div key={server.id} className={`rounded-xl border p-4 ${server.connected ? 'border-cyan-300 dark:border-cyan-700 bg-cyan-50/30 dark:bg-cyan-900/10' : 'border-slate-200 dark:border-slate-700'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${server.connected ? 'bg-cyan-100 dark:bg-cyan-900/30' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                <Plug className={`w-5 h-5 ${server.connected ? 'text-cyan-500' : 'text-slate-400'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{server.name}</span>
+                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${server.transport === 'stdio' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500' : 'bg-blue-50 dark:bg-blue-900/20 text-blue-500'}`}>{server.transport}</span>
+                  {server.connected ? (
+                    <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-green-50 dark:bg-green-900/20 text-green-600 flex items-center gap-0.5"><Zap className="w-2.5 h-2.5" /> connected</span>
+                  ) : (
+                    <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">disconnected</span>
+                  )}
+                </div>
+                {server.description && <p className="text-xs text-slate-500 mt-0.5">{server.description}</p>}
+                <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+                  {server.transport === 'stdio' ? `$ ${server.command} ${(server.args || []).join(' ')}` : server.url || 'No URL'}
+                </p>
+                {server.connected && server.discoveredTools?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {server.discoveredTools.map((t: string) => (
+                      <span key={t} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 dark:text-cyan-400">{t}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                {server.connected ? (
+                  <button onClick={() => handleDisconnect(server.id)} disabled={connecting === server.id} title="Disconnect" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 text-xs font-medium disabled:opacity-50">
+                    {connecting === server.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Unlink className="w-3.5 h-3.5" />} Disconnect
+                  </button>
+                ) : (
+                  <button onClick={() => handleConnect(server.id)} disabled={connecting === server.id} title="Connect" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 hover:bg-cyan-100 dark:hover:bg-cyan-900/30 text-cyan-600 text-xs font-medium disabled:opacity-50">
+                    {connecting === server.id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Link className="w-3.5 h-3.5" />} Connect
+                  </button>
+                )}
+                <button onClick={() => { setEditingServer(server); setShowForm(false); }} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-primary-500"><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => setDeleteId(server.id)} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {servers.length === 0 && (
+          <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-8 text-center text-sm text-slate-400">
+            No MCP servers configured. Click "Add Server" to connect one.
+          </div>
+        )}
+      </div>
+
+      {(showForm || editingServer) && <McpFormModal server={editingServer} onClose={() => { setShowForm(false); setEditingServer(null); }} onSaved={() => { setShowForm(false); setEditingServer(null); onRefresh(); }} />}
+
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4"><AlertCircle className="w-6 h-6 text-red-500" /><h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Delete MCP Server</h3></div>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">This will disconnect and remove the server permanently.</p>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setDeleteId(null)} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium">Cancel</button>
+              <button onClick={handleDelete} className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───── MCP Form Modal ───── */
+function McpFormModal({ server, onClose, onSaved }: { server: any | null; onClose: () => void; onSaved: () => void }) {
+  const isEditing = !!server;
+  const [name, setName] = useState(server?.name || '');
+  const [description, setDescription] = useState(server?.description || '');
+  const [transport, setTransport] = useState<'stdio' | 'sse'>(server?.transport || 'stdio');
+  const [command, setCommand] = useState(server?.command || '');
+  const [args, setArgs] = useState((server?.args || []).join(' '));
+  const [envJson, setEnvJson] = useState(server?.env ? JSON.stringify(server.env, null, 2) : '{}');
+  const [url, setUrl] = useState(server?.url || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSave = async () => {
+    setError('');
+    if (!name.trim()) { setError('Name is required'); return; }
+
+    let env: Record<string, string> = {};
+    try { env = JSON.parse(envJson); } catch { setError('Invalid env JSON'); return; }
+
+    setSaving(true);
+    try {
+      const data = { name: name.trim(), description: description.trim(), transport, command: command.trim(), args: args.trim() ? args.trim().split(/\s+/) : [], env, url: url.trim() };
+      if (isEditing) { await api.admin.updateMcp(server.id, data); }
+      else { await api.admin.createMcp(data); }
+      onSaved();
+    } catch (e: any) { setError(e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <Plug className="w-5 h-5 text-cyan-500" /> {isEditing ? 'Edit MCP Server' : 'Add MCP Server'}
+          </h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700"><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+
+        {error && <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2"><AlertCircle className="w-4 h-4 shrink-0" /> {error}</div>}
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Server Name</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. filesystem" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Description</label>
+            <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this server provide?" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Transport</label>
+            <div className="flex gap-2">
+              <button onClick={() => setTransport('stdio')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium ${transport === 'stdio' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-600' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                <Terminal className="w-4 h-4" /> Stdio
+              </button>
+              <button onClick={() => setTransport('sse')} className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-medium ${transport === 'sse' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-600' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                <Globe className="w-4 h-4" /> SSE
+              </button>
+            </div>
+          </div>
+
+          {transport === 'stdio' && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Command</label>
+                <input type="text" value={command} onChange={e => setCommand(e.target.value)} placeholder="e.g. npx, python, node" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 font-mono" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Arguments (space-separated)</label>
+                <input type="text" value={args} onChange={e => setArgs(e.target.value)} placeholder="e.g. -y @modelcontextprotocol/server-filesystem /path" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 font-mono" />
+              </div>
+            </>
+          )}
+
+          {transport === 'sse' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">SSE URL</label>
+              <input type="text" value={url} onChange={e => setUrl(e.target.value)} placeholder="http://localhost:8080/sse" className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-primary-500 font-mono" />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Environment Variables (JSON)</label>
+            <textarea value={envJson} onChange={e => setEnvJson(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs outline-none focus:border-primary-500 resize-none font-mono" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-medium">Cancel</button>
           <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-sm font-medium disabled:opacity-50">
             <Save className="w-4 h-4" /> {saving ? 'Saving...' : isEditing ? 'Update' : 'Create'}
           </button>
