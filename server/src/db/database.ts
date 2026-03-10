@@ -178,6 +178,38 @@ function runMigrations(db: DatabaseWrapper): void {
     // column already exists
   }
 
+  // Memories table for long-term agent memory
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      workspace_path TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'semantic',
+      content TEXT NOT NULL,
+      source TEXT DEFAULT 'auto',
+      relevance REAL DEFAULT 1.0,
+      access_count INTEGER DEFAULT 0,
+      last_accessed DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspace_path);
+    CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+  `);
+
+  // Conversation summaries table for session history compression
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_summaries (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      summary TEXT NOT NULL,
+      message_range_start TEXT NOT NULL,
+      message_range_end TEXT NOT NULL,
+      message_count INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_summaries_session ON conversation_summaries(session_id);
+  `);
+
   // Remove CHECK constraint on workspaces.level for dynamic nesting
   try {
     const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='workspaces'").get() as any;

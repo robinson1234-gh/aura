@@ -96,4 +96,26 @@ export const api = {
   summaries: {
     get: (id: string) => request<{ id: string; content: string }>(`/summaries/${id}`),
   },
+
+  admin: {
+    stats: () => request<{ workspaceCount: number; sessionCount: number; messageCount: number; memoryCount: number }>('/admin/stats'),
+    workspaces: () => request<any[]>('/admin/workspaces'),
+    sessions: (workspaceId?: string) => request<any[]>(`/admin/sessions${workspaceId ? `?workspaceId=${workspaceId}` : ''}`),
+    memories: () => request<any[]>('/admin/memories'),
+    bulkDeleteSessions: (ids: string[]) => request<any>('/admin/sessions/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+    bulkDeleteMemories: (ids: string[]) => request<any>('/admin/memories/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+  },
+
+  memory: {
+    list: (wsPath: string, exact = false) =>
+      request<any[]>(`/memory/list/${wsPath}?exact=${exact}`),
+    create: (wsPath: string, category: string, content: string) =>
+      request<any>(`/memory/add/${wsPath}`, { method: 'POST', body: JSON.stringify({ category, content, source: 'manual' }) }),
+    update: (id: string, content: string, category?: string) =>
+      request<any>(`/memory/entry/${id}`, { method: 'PUT', body: JSON.stringify({ content, category }) }),
+    delete: (id: string) =>
+      request<void>(`/memory/entry/${id}`, { method: 'DELETE' }),
+    getContext: (wsPath: string) =>
+      request<{ context: string }>(`/memory/context/${wsPath}`),
+  },
 };

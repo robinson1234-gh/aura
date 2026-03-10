@@ -4,6 +4,7 @@ import { ToolRegistry } from '../tools/ToolRegistry.js';
 import { CursorTool } from '../tools/CursorTool.js';
 import { ShellTool } from '../tools/ShellTool.js';
 import { ReadFileTool, WriteFileTool, ListDirectoryTool, SearchFilesTool } from '../tools/FileTool.js';
+import { MemoryService } from '../services/MemoryService.js';
 import { v4 as uuid } from 'uuid';
 import fs from 'fs';
 import path from 'path';
@@ -128,16 +129,44 @@ export class LLMAgent extends BaseAgent {
   private buildMessages(prompt: string, context: AgentContext): ChatMessage[] {
     const messages: ChatMessage[] = [];
 
-    const systemParts: string[] = [
-      'You are a helpful AI assistant that can use tools to complete tasks.',
-      'When the user asks you to perform actions (coding, file operations, running commands, etc.), use the available tools.',
-      'Always explain what you\'re doing and share the results.',
-    ];
+    const systemParts: string[] = [];
+
+    if (context.identity) {
+      systemParts.push(context.identity);
+    } else {
+      systemParts.push('You are a helpful AI assistant that can use tools to complete tasks.');
+    }
+
+    systemParts.push('When the user asks you to perform actions (coding, file operations, running commands, etc.), use the available tools.');
+    systemParts.push('Always explain what you\'re doing and share the results.');
+
+    if (context.agent) systemParts.push('\n--- Agent Instructions ---\n' + context.agent);
     if (context.soul) systemParts.push('\n--- Persona ---\n' + context.soul);
     if (context.skills) systemParts.push('\n--- Skills ---\n' + context.skills);
+    if (context.user) systemParts.push('\n--- User Preferences ---\n' + context.user);
     if (context.workingDirectory) {
       systemParts.push(`\nCurrent working directory: ${context.workingDirectory}`);
     }
+
+    // Inject dynamic memories from MemoryService
+    const memoryService = new MemoryService();
+    const dynamicMemory = memoryService.retrieveForContext(context.workspacePath);
+    if (dynamicMemory || context.memory) {
+      const memParts: string[] = [];
+      if (context.memory) memParts.push(context.memory);
+      if (dynamicMemory) memParts.push(dynamicMemory);
+      systemParts.push('\n--- Memory & Context ---\n' + memParts.join('\n\n'));
+    }
+
+    // Inject conversation summaries for long sessions
+    const { summary } = memoryService.buildContextWithSummary(
+      context.sessionId,
+      context.history.map(m => ({ id: m.id, role: m.role, content: m.content }))
+    );
+    if (summary) {
+      systemParts.push('\n--- Previous Conversation Summary ---\n' + summary);
+    }
+
     messages.push({ role: 'system', content: systemParts.join('\n') });
 
     for (const msg of context.history) {

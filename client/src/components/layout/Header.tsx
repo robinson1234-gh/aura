@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Settings, PanelLeftClose, PanelLeft, Shield } from 'lucide-react';
 import { StatusIndicator } from '../common/StatusIndicator';
 import { useSessionStore } from '../../stores/sessionStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -11,7 +11,7 @@ export function Header() {
   const sessions = useSessionStore(s => s.sessions);
   const chatStates = useSessionStore(s => s.chatStates);
   const { activeWorkspace } = useWorkspaceStore();
-  const { sidebarOpen, toggleSidebar, toggleConfigPanel } = useConfigStore();
+  const { sidebarOpen, toggleSidebar, toggleConfigPanel, toggleAdminPanel } = useConfigStore();
   const [defaultAgent, setDefaultAgent] = useState<string>('');
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
@@ -61,6 +61,14 @@ export function Header() {
       )}
 
       <StatusIndicator status={agentStatus} detail={agentStatusDetail} />
+
+      <button
+        onClick={toggleAdminPanel}
+        className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        title="Admin Management"
+      >
+        <Shield className="w-4 h-4 text-slate-500" />
+      </button>
 
       <button
         onClick={toggleConfigPanel}

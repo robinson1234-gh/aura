@@ -10,6 +10,8 @@ import configRoutes from './routes/config.js';
 import fileRoutes from './routes/files.js';
 import llmRoutes from './routes/llm.js';
 import cursorRoutes from './routes/cursor.js';
+import memoryRoutes from './routes/memory.js';
+import adminRoutes from './routes/admin.js';
 import type { AgentBridge } from '../agents/AgentBridge.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -30,6 +32,8 @@ export function createHttpServer(agentBridge: AgentBridge) {
   app.use('/api/files', fileRoutes);
   app.use('/api/llm', llmRoutes);
   app.use('/api/cursor', cursorRoutes);
+  app.use('/api/memory', memoryRoutes);
+  app.use('/api/admin', adminRoutes);
 
   app.get('/api/health', async (_req, res) => {
     const agents = await agentBridge.healthCheckAll();

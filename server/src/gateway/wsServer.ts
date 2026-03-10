@@ -10,6 +10,7 @@ import { MessageService } from '../services/MessageService.js';
 import { ConfigService } from '../services/ConfigService.js';
 import { WorkspaceService } from '../services/WorkspaceService.js';
 import { SessionService } from '../services/SessionService.js';
+import { MemoryService } from '../services/MemoryService.js';
 import type { WSClientMessage, WSServerMessage } from '../types/index.js';
 
 const SUMMARY_DIR = path.join(os.homedir(), '.workagent', 'summaries');
@@ -18,6 +19,7 @@ fs.mkdirSync(SUMMARY_DIR, { recursive: true });
 export function createWebSocketServer(server: Server, agentBridge: AgentBridge): WebSocketServer {
   const wss = new WebSocketServer({ server, path: '/ws' });
   const messageService = new MessageService();
+  const memoryService = new MemoryService();
   const configService = new ConfigService();
   const workspaceService = new WorkspaceService();
   const sessionService = new SessionService();
@@ -231,6 +233,27 @@ export function createWebSocketServer(server: Server, agentBridge: AgentBridge):
                 },
               });
               console.log(`[WS] Response complete (agent: ${agentName}, chunks: ${chunkCount}, chars: ${fullContent.length}, tools: ${toolRecords.length}, ${elapsed}ms)`);
+
+              // Background: extract memories and summarize if needed
+              (async () => {
+                try {
+                  const allMessages = messageService.getRecentContext(sessionId, 50);
+                  const msgObjs = allMessages.map(m => ({ id: m.id, role: m.role, content: m.content }));
+
+                  const extracted = await memoryService.extractMemories(workspace.path, msgObjs);
+                  if (extracted.length > 0) {
+                    console.log(`[Memory] Extracted ${extracted.length} memories for ${workspace.path}`);
+                  }
+
+                  const summaryResult = await memoryService.summarizeIfNeeded(sessionId, msgObjs);
+                  if (summaryResult) {
+                    console.log(`[Memory] Created conversation summary for session ${sessionId.slice(0, 8)}`);
+                  }
+                } catch (e: any) {
+                  console.error('[Memory] Background processing error:', e.message);
+                }
+              })();
+
             } catch (error: any) {
               console.error('[WS] Execution error:', error.message);
               send({

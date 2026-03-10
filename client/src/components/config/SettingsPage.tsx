@@ -8,6 +8,7 @@ import { AgentSettings } from './AgentSettings';
 import { LLMSettings } from './LLMSettings';
 import { WorkspaceSettings } from './WorkspaceSettings';
 import { MdEditor } from './MdEditor';
+import { MemoryManager } from './MemoryManager';
 
 type Section =
   | 'agents'
@@ -61,6 +62,15 @@ export function SettingsPage() {
 
     if (!activeWorkspace) return <NoWorkspace />;
 
+    if (section === 'memory') {
+      return (
+        <MemoryManager
+          key={`${activeWorkspace.path}-memory`}
+          workspacePath={activeWorkspace.path}
+        />
+      );
+    }
+
     const configs: Record<string, { filename: string; title: string; description: string; placeholder: string }> = {
       'agent-md': {
         filename: 'AGENT.md',
@@ -79,12 +89,6 @@ export function SettingsPage() {
         title: 'Identity / Persona',
         description: 'Define the agent\'s personality, communication style, and persona. This shapes how the agent responds and interacts.',
         placeholder: '# Identity\n\n## Persona\nYou are a senior full-stack developer with 10 years of experience.\n\n## Communication Style\n- Be concise and precise\n- Prefer code over lengthy explanations\n- Use technical language appropriate for the audience\n\n## Values\n- Code quality over speed\n- Maintainability and readability',
-      },
-      'memory': {
-        filename: 'MEMORY.md',
-        title: 'Memory',
-        description: 'Store persistent context, important decisions, and knowledge that should be remembered across sessions.',
-        placeholder: '# Memory\n\n## Project Decisions\n- Using monorepo with client/server structure\n- SQLite via sql.js for data persistence\n- WebSocket for real-time communication\n\n## Known Issues\n- Windows path handling needs quoting\n\n## Key Patterns\n- All state management via Zustand\n- API calls through centralized api.ts',
       },
       'user': {
         filename: 'USER.md',
