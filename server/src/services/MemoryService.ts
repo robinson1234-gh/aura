@@ -355,7 +355,7 @@ export class MemoryService {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          max_tokens: 1024,
+          ...LLMAgent.maxTokensParam(config, 1024),
           temperature: 0.3,
           stream: false,
         }),

@@ -254,7 +254,7 @@ export class LLMAgent extends BaseAgent {
       const requestBody: Record<string, unknown> = {
         model: config.model,
         messages,
-        max_tokens: config.maxTokens || 4096,
+        ...LLMAgent.maxTokensParam(config, config.maxTokens || 4096),
         temperature: config.temperature ?? 0.7,
         stream: true,
       };
@@ -265,15 +265,25 @@ export class LLMAgent extends BaseAgent {
 
       console.log(`[LLMAgent] Calling ${url} (model: ${config.model}, iteration: ${iteration}, tools: ${tools.length})`);
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+          ...LLMAgent.getFetchProxyOptions(),
+        });
+      } catch (fetchError: any) {
+        if (fetchError.name === 'AbortError') throw fetchError;
+        const hint = LLMAgent.diagnoseFetchError(fetchError, url);
+        console.error(`[LLMAgent] fetch failed for ${url}:`, fetchError.message);
+        yield this.emitSpan({ spanId: llmSpanId, parentSpanId: chainSpanId, name: `LLM Call #${iteration + 1}`, kind: 'llm', status: 'error', startTime: llmStart, endTime: Date.now(), error: hint });
+        throw new Error(hint);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -455,6 +465,54 @@ export class LLMAgent extends BaseAgent {
     return { textContent, toolCalls, finishReason, usage };
   }
 
+  private static diagnoseFetchError(err: Error, url: string): string {
+    const msg = err.message || '';
+    const cause = (err as any).cause?.message || (err as any).cause?.code || '';
+    const code = (err as any).code || cause;
+
+    if (/ENOTFOUND/.test(code) || /getaddrinfo/.test(msg)) {
+      const host = new URL(url).hostname;
+      return `DNS resolution failed for "${host}". Check your internet connection or if you need to configure a proxy (set HTTPS_PROXY env var).`;
+    }
+    if (/ECONNREFUSED/.test(code)) {
+      return `Connection refused by ${url}. The API endpoint may be down, or a proxy/firewall is blocking the connection.`;
+    }
+    if (/ECONNRESET|EPIPE/.test(code)) {
+      return `Connection reset while calling ${url}. A proxy or firewall may be terminating the connection.`;
+    }
+    if (/ETIMEDOUT|ENETUNREACH/.test(code)) {
+      return `Network timeout reaching ${url}. Check your internet connection or proxy settings (set HTTPS_PROXY env var).`;
+    }
+    if (/certificate|CERT|self.signed/i.test(msg + code)) {
+      return `TLS/SSL certificate error calling ${url}. If you are behind a corporate proxy, you may need to set NODE_EXTRA_CA_CERTS or NODE_TLS_REJECT_UNAUTHORIZED=0 (not recommended for production).`;
+    }
+    if (/fetch failed/i.test(msg)) {
+      return `Network request to ${url} failed (${cause || 'unknown cause'}). Possible fixes:\n` +
+        `  1. Check internet connectivity\n` +
+        `  2. If behind a proxy, set HTTPS_PROXY=http://your-proxy:port\n` +
+        `  3. Verify the base URL in your LLM configuration is correct`;
+    }
+    return `Failed to connect to ${url}: ${msg}${cause ? ' (' + cause + ')' : ''}`;
+  }
+
+  static maxTokensParam(config: { provider: string; model: string }, maxTokens: number): Record<string, number> {
+    const useNew = config.provider === 'openai' &&
+      /^(o[1-9]|gpt-4\.?1|gpt-5)/i.test(config.model);
+    return useNew ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens };
+  }
+
+  private static getFetchProxyOptions(): Record<string, unknown> {
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy ||
+                     process.env.HTTP_PROXY || process.env.http_proxy;
+    if (!proxyUrl) return {};
+    try {
+      const { ProxyAgent } = require('undici');
+      return { dispatcher: new ProxyAgent(proxyUrl) };
+    } catch {
+      return {};
+    }
+  }
+
   private async *executeAnthropic(prompt: string, context: AgentContext, config: LLMConfig): AsyncGenerator<StreamChunk> {
     const controller = new AbortController();
     this.abortControllers.set(context.sessionId, controller);
@@ -484,16 +542,23 @@ export class LLMAgent extends BaseAgent {
       body.tools = anthropicTools;
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        ...LLMAgent.getFetchProxyOptions(),
+      });
+    } catch (fetchError: any) {
+      if (fetchError.name === 'AbortError') throw fetchError;
+      throw new Error(LLMAgent.diagnoseFetchError(fetchError, url));
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

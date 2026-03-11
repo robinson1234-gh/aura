@@ -1,4 +1,4 @@
-import { type ChildProcess } from 'child_process';
+import { type ChildProcess, execSync } from 'child_process';
 import { BaseAgent } from './BaseAgent.js';
 import type { AgentContext, StreamChunk } from '../types/index.js';
 import { spawnSafe } from '../tools/spawnSafe.js';
@@ -11,6 +11,18 @@ interface CursorConfig {
 }
 
 const CONFIG_PATH = path.join(os.homedir(), '.workagent', 'cursor-config.json');
+
+function resolveAgentBinary(): string {
+  const localBin = path.join(os.homedir(), '.local', 'bin', 'agent');
+  if (fs.existsSync(localBin)) return localBin;
+
+  try {
+    const which = execSync('which agent 2>/dev/null', { encoding: 'utf-8' }).trim();
+    if (which) return which;
+  } catch { /* not on PATH */ }
+
+  return 'agent';
+}
 
 export class CursorAgent extends BaseAgent {
   name = 'cursor';
@@ -83,7 +95,7 @@ export class CursorAgent extends BaseAgent {
   private checkCliExists(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        const proc = spawnSafe('agent', ['--version'], { shell: true, stdio: 'pipe' });
+        const proc = spawnSafe(resolveAgentBinary(), ['--version'], { shell: true, stdio: 'pipe' });
         let output = '';
         proc.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
         const timer = setTimeout(() => { proc.kill(); resolve(false); }, 10000);
@@ -96,7 +108,7 @@ export class CursorAgent extends BaseAgent {
   private checkCliAuth(): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        const proc = spawnSafe('agent', ['status'], { shell: true, stdio: 'pipe' });
+        const proc = spawnSafe(resolveAgentBinary(), ['status'], { shell: true, stdio: 'pipe' });
         let output = '';
         proc.stdout?.on('data', (d: Buffer) => { output += d.toString(); });
         proc.stderr?.on('data', (d: Buffer) => { output += d.toString(); });
@@ -135,8 +147,7 @@ export class CursorAgent extends BaseAgent {
     const env = { ...process.env };
     if (apiKey) env.CURSOR_API_KEY = apiKey;
 
-    const proc = spawnSafe('agent', args, {
-      shell: true,
+    const proc = spawnSafe(resolveAgentBinary(), args, {
       cwd: context.workingDirectory || undefined,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -89,7 +89,7 @@ Generate the ${filename} content:`;
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        max_tokens: 2048,
+        ...LLMAgent.maxTokensParam(config, 2048),
         temperature: 0.7,
         stream: false,
       }),
